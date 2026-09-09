@@ -1,0 +1,86 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  sortOrder Int        @default(0)
+  exercises Exercise[]
+}
+
+model Exercise {
+  id                String            @id @default(cuid())
+  name              String
+  description       String?
+  categoryId        String
+  category          Category          @relation(fields: [categoryId], references: [id])
+  estimatedMinutes  Int
+  minTempC          Int?
+  maxTempC          Int?
+  avoidRain         Boolean           @default(false)
+  avoidHighWind     Boolean           @default(false)
+  seasons           String[]
+  upvotes           Int               @default(0)
+  downvotes         Int               @default(0)
+  createdAt         DateTime          @default(now())
+  comments          ExerciseComment[]
+  sessionExercises  SessionExercise[]
+}
+
+model ExerciseComment {
+  id         String   @id @default(cuid())
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  text       String
+  createdAt  DateTime @default(now())
+}
+
+model Session {
+  id               String            @id @default(cuid())
+  date             DateTime
+  targetMinutes    Int
+  notes            String?
+  attendanceCount  Int?
+  shareSlug        String            @unique
+  createdAt        DateTime          @default(now())
+  exercises        SessionExercise[]
+  feedback         Feedback[]
+}
+
+model SessionExercise {
+  id               String   @id @default(cuid())
+  sessionId        String
+  session          Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exerciseId       String
+  exercise         Exercise @relation(fields: [exerciseId], references: [id])
+  orderIndex       Int
+  allocatedMinutes Int
+
+  @@index([exerciseId])
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+model Settings {
+  id             Int     @id @default(1)
+  weatherFilter  Boolean @default(true)
+  seasonFilter   Boolean @default(true)
+}

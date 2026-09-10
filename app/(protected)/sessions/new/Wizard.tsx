@@ -5,8 +5,9 @@ import {
   createSession,
   getSuggestions,
   getWizardContext,
-  Suggestion,
+  BlockInput,
 } from "../wizard-actions";
+import { SelectableExercise } from "@/lib/selection";
 
 type Category = { id: string; name: string };
 
@@ -17,8 +18,41 @@ type WeatherInfo = {
   settings: { weatherFilter: boolean; seasonFilter: boolean };
 };
 
+type ExerciseItem = {
+  id: string;
+  exerciseId: string;
+  minutes: string;
+  weight: string;
+  reps: string;
+};
+
+type CategoryBlock = {
+  id: string;
+  kind: "category";
+  categoryId: string;
+  categoryName: string;
+  pool: SelectableExercise[];
+  items: ExerciseItem[];
+};
+
+type TextBlock = {
+  id: string;
+  kind: "text";
+  text: string;
+};
+
+type Block = CategoryBlock | TextBlock;
+
+function uid() {
+  return Math.random().toString(36).slice(2);
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function itemFromExercise(ex: SelectableExercise): ExerciseItem {
+  return { id: uid(), exerciseId: ex.id, minutes: String(ex.estimatedMinutes), weight: "", reps: "" };
 }
 
 export function Wizard() {
@@ -33,16 +67,25 @@ export function Wizard() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
 
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [chosenByCategory, setChosenByCategory] = useState<Record<string, string>>({});
-  const [minutesByExercise, setMinutesByExercise] = useState<Record<string, number>>({});
+  const [blocks, setBlocks] = useState<Block[]>([]);
+  const [addCategoryId, setAddCategoryId] = useState<string>("");
   const [attendanceCount, setAttendanceCount] = useState<string>("");
   const [notes, setNotes] = useState("");
 
   const totalMinutes = useMemo(
-    () => Object.values(minutesByExercise).reduce((a, b) => a + b, 0),
-    [minutesByExercise],
+    () =>
+      blocks.reduce((sum, b) => {
+        if (b.kind !== "category") return sum;
+        return sum + b.items.reduce((s, it) => s + (Number(it.minutes) || 0), 0);
+      }, 0),
+    [blocks],
   );
+
+  const categoryIdsInUse = useMemo(
+    () => new Set(blocks.filter((b): b is CategoryBlock => b.kind === "category").map((b) => b.categoryId)),
+    [blocks],
+  );
+  const availableCategoriesToAdd = categories.filter((c) => !categoryIdsInUse.has(c.id));
 
   function goToStep2() {
     setError(null);
@@ -59,6 +102,14 @@ export function Wizard() {
     });
   }
 
+  function sortWarmupFirst(list: Block[]): Block[] {
+    return [...list].sort((a, b) => {
+      const aFirst = a.kind === "category" && a.categoryName === "Warm-up" ? 0 : 1;
+      const bFirst = b.kind === "category" && b.categoryName === "Warm-up" ? 0 : 1;
+      return aFirst - bFirst;
+    });
+  }
+
   function goToStep3() {
     if (selectedCategoryIds.length === 0) {
       setError("Pick at least one category.");
@@ -67,43 +118,147 @@ export function Wizard() {
     setError(null);
     startTransition(async () => {
       const results = await getSuggestions(date, selectedCategoryIds);
-      const missing = results.filter((r) => !r.chosen);
-      if (missing.length > 0) {
+      const newBlocks: CategoryBlock[] = results.map((r) => ({
+        id: uid(),
+        kind: "category",
+        categoryId: r.categoryId,
+        categoryName: r.categoryName,
+        pool: r.pool,
+        items: r.picks.map(itemFromExercise),
+      }));
+      const empty = newBlocks.filter((b) => b.items.length === 0);
+      if (empty.length > 0) {
         setError(
-          `No exercises found for: ${missing.map((m) => m.categoryName).join(", ")}. Add some in the exercise library first.`,
+          `No exercises found for: ${empty.map((b) => b.categoryName).join(", ")}. Add some in the exercise library first.`,
         );
         return;
       }
-      setSuggestions(results);
-      setChosenByCategory(Object.fromEntries(results.map((r) => [r.categoryId, r.chosen!.id])));
-      setMinutesByExercise(
-        Object.fromEntries(results.map((r) => [r.chosen!.id, r.chosen!.estimatedMinutes])),
-      );
+      setBlocks(sortWarmupFirst(newBlocks));
       setStep(3);
     });
   }
 
-  function swapExercise(categoryId: string, exerciseId: string) {
-    const suggestion = suggestions.find((s) => s.categoryId === categoryId);
-    const exercise = suggestion?.pool.find((e) => e.id === exerciseId);
-    if (!exercise) return;
-    setChosenByCategory((prev) => ({ ...prev, [categoryId]: exerciseId }));
-    setMinutesByExercise((prev) => ({ ...prev, [exerciseId]: exercise.estimatedMinutes }));
+  function moveBlock(index: number, direction: -1 | 1) {
+    setBlocks((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function removeBlock(id: string) {
+    setBlocks((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  function addTextBlock() {
+    setBlocks((prev) => [...prev, { id: uid(), kind: "text", text: "" }]);
+  }
+
+  function updateTextBlock(id: string, text: string) {
+    setBlocks((prev) => prev.map((b) => (b.id === id && b.kind === "text" ? { ...b, text } : b)));
+  }
+
+  function addCategoryBlock() {
+    if (!addCategoryId) return;
+    const category = categories.find((c) => c.id === addCategoryId);
+    if (!category) return;
+    setError(null);
+    startTransition(async () => {
+      const results = await getSuggestions(date, [addCategoryId]);
+      const r = results[0];
+      if (!r || r.pool.length === 0) {
+        setError(`No exercises found for ${category.name}. Add some in the exercise library first.`);
+        return;
+      }
+      const newBlock: CategoryBlock = {
+        id: uid(),
+        kind: "category",
+        categoryId: r.categoryId,
+        categoryName: r.categoryName,
+        pool: r.pool,
+        items: r.picks.map(itemFromExercise),
+      };
+      setBlocks((prev) => [...prev, newBlock]);
+      setAddCategoryId("");
+    });
+  }
+
+  function addExerciseToBlock(blockId: string) {
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId || b.kind !== "category") return b;
+        const unused = b.pool.find((ex) => !b.items.some((it) => it.exerciseId === ex.id));
+        const next = unused ?? b.pool[0];
+        if (!next) return b;
+        return { ...b, items: [...b.items, itemFromExercise(next)] };
+      }),
+    );
+  }
+
+  function removeExerciseFromBlock(blockId: string, itemId: string) {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === blockId && b.kind === "category" ? { ...b, items: b.items.filter((it) => it.id !== itemId) } : b,
+      ),
+    );
+  }
+
+  function swapExercise(blockId: string, itemId: string, newExerciseId: string) {
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId || b.kind !== "category") return b;
+        const ex = b.pool.find((e) => e.id === newExerciseId);
+        if (!ex) return b;
+        return {
+          ...b,
+          items: b.items.map((it) =>
+            it.id === itemId ? { ...itemFromExercise(ex), id: it.id } : it,
+          ),
+        };
+      }),
+    );
+  }
+
+  function updateItemField(blockId: string, itemId: string, field: "minutes" | "weight" | "reps", value: string) {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === blockId && b.kind === "category"
+          ? { ...b, items: b.items.map((it) => (it.id === itemId ? { ...it, [field]: value } : it)) }
+          : b,
+      ),
+    );
   }
 
   function save() {
     setError(null);
-    const exercises = suggestions.map((s) => {
-      const exerciseId = chosenByCategory[s.categoryId];
-      return { exerciseId, allocatedMinutes: minutesByExercise[exerciseId] ?? 0 };
-    });
+    const blockInputs: BlockInput[] = blocks
+      .map((b): BlockInput | null => {
+        if (b.kind === "text") {
+          return b.text.trim() ? { type: "text", text: b.text } : null;
+        }
+        if (b.items.length === 0) return null;
+        return {
+          type: "category",
+          categoryId: b.categoryId,
+          exercises: b.items.map((it) => ({
+            exerciseId: it.exerciseId,
+            minutes: it.minutes ? Number(it.minutes) : undefined,
+            weight: it.weight ? Number(it.weight) : undefined,
+            reps: it.reps ? Number(it.reps) : undefined,
+          })),
+        };
+      })
+      .filter((b): b is BlockInput => b !== null);
+
     startTransition(async () => {
       await createSession({
         dateStr: date,
         targetMinutes,
         notes: notes || undefined,
         attendanceCount: attendanceCount ? Number(attendanceCount) : undefined,
-        exercises,
+        blocks: blockInputs,
       });
     });
   }
@@ -215,40 +370,144 @@ export function Wizard() {
       {step === 3 && (
         <div className="flex flex-col gap-4">
           <ul className="flex flex-col gap-3">
-            {suggestions.map((s) => {
-              const chosenId = chosenByCategory[s.categoryId];
-              return (
-                <li key={s.categoryId} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            {blocks.map((b, index) => (
+              <li key={b.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    {s.categoryName}
+                    {b.kind === "category" ? b.categoryName : "Note"}
                   </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <select
-                      value={chosenId}
-                      onChange={(e) => swapExercise(s.categoryId, e.target.value)}
-                      className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => moveBlock(index, -1)}
+                      className="rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 disabled:opacity-30 dark:hover:bg-zinc-800"
+                      aria-label="Move up"
                     >
-                      {s.pool.map((ex) => (
-                        <option key={ex.id} value={ex.id}>
-                          {ex.name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min={1}
-                      value={minutesByExercise[chosenId] ?? 0}
-                      onChange={(e) =>
-                        setMinutesByExercise((prev) => ({ ...prev, [chosenId]: Number(e.target.value) }))
-                      }
-                      className="w-20 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                    />
-                    <span className="text-xs text-zinc-500">min</span>
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === blocks.length - 1}
+                      onClick={() => moveBlock(index, 1)}
+                      className="rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 disabled:opacity-30 dark:hover:bg-zinc-800"
+                      aria-label="Move down"
+                    >
+                      ▼
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeBlock(b.id)}
+                      className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                      aria-label="Remove"
+                    >
+                      ✕
+                    </button>
                   </div>
-                </li>
-              );
-            })}
+                </div>
+
+                {b.kind === "text" ? (
+                  <textarea
+                    value={b.text}
+                    onChange={(e) => updateTextBlock(b.id, e.target.value)}
+                    rows={3}
+                    placeholder="Free-text note (instructions, warm-up game, reminders…)"
+                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {b.items.map((item) => (
+                      <div key={item.id} className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={item.exerciseId}
+                          onChange={(e) => swapExercise(b.id, item.id, e.target.value)}
+                          className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        >
+                          {b.pool.map((ex) => (
+                            <option key={ex.id} value={ex.id}>
+                              {ex.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.minutes}
+                          onChange={(e) => updateItemField(b.id, item.id, "minutes", e.target.value)}
+                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        />
+                        <span className="text-xs text-zinc-500">min</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          placeholder="kg"
+                          value={item.weight}
+                          onChange={(e) => updateItemField(b.id, item.id, "weight", e.target.value)}
+                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        />
+                        <span className="text-xs text-zinc-500">kg</span>
+                        <input
+                          type="number"
+                          min={0}
+                          placeholder="reps"
+                          value={item.reps}
+                          onChange={(e) => updateItemField(b.id, item.id, "reps", e.target.value)}
+                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        />
+                        <span className="text-xs text-zinc-500">reps</span>
+                        <button
+                          type="button"
+                          onClick={() => removeExerciseFromBlock(b.id, item.id)}
+                          className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                          aria-label="Remove exercise"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addExerciseToBlock(b.id)}
+                      className="self-start rounded-lg border border-dashed border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                    >
+                      + Add exercise
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
           </ul>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={addCategoryId}
+              onChange={(e) => setAddCategoryId(e.target.value)}
+              className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <option value="">Choose a category…</option>
+              {availableCategoriesToAdd.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!addCategoryId || pending}
+              onClick={addCategoryBlock}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              + Add category
+            </button>
+            <button
+              type="button"
+              onClick={addTextBlock}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              + Add text block
+            </button>
+          </div>
 
           <p className="text-sm">
             Total: <span className="font-medium">{totalMinutes} min</span> (target {targetMinutes} min)

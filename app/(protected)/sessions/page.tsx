@@ -28,15 +28,23 @@ export default async function SessionsPage() {
               <Link href={`/sessions/${s.id}`} className="flex items-center justify-between px-4 py-3">
                 <div>
                   <p className="font-medium text-zinc-900 dark:text-zinc-50">
+                    {s.title ||
+                      s.date.toLocaleDateString("en-GB", {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                  </p>
+                  <p className="text-xs text-zinc-500">
                     {s.date.toLocaleDateString("en-GB", {
-                      weekday: "short",
                       day: "numeric",
                       month: "short",
                       year: "numeric",
                     })}
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    {s._count.exercises} exercises · {s.targetMinutes} min target
+                    {s.dateIsGuess ? " (estimated)" : ""}
+                    {s._count.exercises > 0 ? ` · ${s._count.exercises} exercises` : ""}
+                    {s.targetMinutes ? ` · ${s.targetMinutes} min target` : ""}
                     {s.attendanceCount !== null ? ` · ${s.attendanceCount} attended` : ""}
                   </p>
                 </div>

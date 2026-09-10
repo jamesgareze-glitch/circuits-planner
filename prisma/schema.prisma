@@ -13,10 +13,11 @@ datasource db {
 }
 
 model Category {
-  id        String     @id @default(cuid())
-  name      String     @unique
-  sortOrder Int        @default(0)
-  exercises Exercise[]
+  id            String         @id @default(cuid())
+  name          String         @unique
+  sortOrder     Int            @default(0)
+  exercises     Exercise[]
+  sessionBlocks SessionBlock[]
 }
 
 model Exercise {
@@ -49,25 +50,49 @@ model ExerciseComment {
 model Session {
   id               String            @id @default(cuid())
   date             DateTime
-  targetMinutes    Int
+  dateIsGuess      Boolean           @default(false)
+  title            String?
+  rawContent       String?
+  targetMinutes    Int?
   notes            String?
   attendanceCount  Int?
   shareSlug        String            @unique
+  sourceFilename   String?           @unique
   createdAt        DateTime          @default(now())
   exercises        SessionExercise[]
+  blocks           SessionBlock[]
   feedback         Feedback[]
 }
 
+model SessionBlock {
+  id          String            @id @default(cuid())
+  sessionId   String
+  session     Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  orderIndex  Int
+  type        String // "category" | "text"
+  categoryId  String?
+  category    Category?         @relation(fields: [categoryId], references: [id])
+  textContent String?
+  exercises   SessionExercise[]
+
+  @@index([sessionId])
+}
+
 model SessionExercise {
-  id               String   @id @default(cuid())
+  id               String        @id @default(cuid())
   sessionId        String
-  session          Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session          Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  blockId          String?
+  block            SessionBlock? @relation(fields: [blockId], references: [id], onDelete: Cascade)
   exerciseId       String
-  exercise         Exercise @relation(fields: [exerciseId], references: [id])
+  exercise         Exercise      @relation(fields: [exerciseId], references: [id])
   orderIndex       Int
-  allocatedMinutes Int
+  allocatedMinutes Int?
+  weight           Float?
+  reps             Int?
 
   @@index([exerciseId])
+  @@index([blockId])
 }
 
 model Feedback {
@@ -80,7 +105,10 @@ model Feedback {
 }
 
 model Settings {
-  id             Int     @id @default(1)
-  weatherFilter  Boolean @default(true)
-  seasonFilter   Boolean @default(true)
+  id                          Int     @id @default(1)
+  weatherFilter               Boolean @default(true)
+  seasonFilter                Boolean @default(true)
+  recencyFilter               Boolean @default(true)
+  recencyWeeks                Int     @default(2)
+  exercisesPerCategoryDefault Int     @default(1)
 }

@@ -1,8 +1,6 @@
 import { Season } from "./constants";
 import { DayForecast, passesSeasonRule, passesWeatherRules } from "./weather";
 
-const NOT_USED_WITHIN_DAYS = 30;
-
 export type SelectableExercise = {
   id: string;
   name: string;
@@ -22,6 +20,8 @@ export type EligibilityOptions = {
   season: Season;
   weatherFilterOn: boolean;
   seasonFilterOn: boolean;
+  recencyFilterOn: boolean;
+  recencyWeeks: number;
   lastUsedByExerciseId: Map<string, Date>;
   sessionDate: Date;
 };
@@ -39,10 +39,11 @@ export function eligiblePoolForCategory(
   const inCategory = exercises.filter((e) => e.categoryId === categoryId);
 
   const notRecentlyUsed = (e: SelectableExercise) => {
+    if (!opts.recencyFilterOn) return true;
     const lastUsed = opts.lastUsedByExerciseId.get(e.id);
     if (!lastUsed) return true;
     const daysSince = (opts.sessionDate.getTime() - lastUsed.getTime()) / 86_400_000;
-    return daysSince >= NOT_USED_WITHIN_DAYS;
+    return daysSince >= opts.recencyWeeks * 7;
   };
 
   const passesWeather = (e: SelectableExercise) => {
@@ -78,4 +79,18 @@ export function pickWeighted(pool: SelectableExercise[]): SelectableExercise | n
     if (roll <= 0) return pool[i];
   }
   return pool[pool.length - 1];
+}
+
+/** Weighted sampling without replacement — picks up to `count` distinct exercises.
+ * If the pool is smaller than `count`, returns everything in the pool. */
+export function pickWeightedMany(pool: SelectableExercise[], count: number): SelectableExercise[] {
+  const remaining = [...pool];
+  const picked: SelectableExercise[] = [];
+  while (remaining.length > 0 && picked.length < count) {
+    const choice = pickWeighted(remaining);
+    if (!choice) break;
+    picked.push(choice);
+    remaining.splice(remaining.indexOf(choice), 1);
+  }
+  return picked;
 }

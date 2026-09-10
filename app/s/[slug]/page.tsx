@@ -12,9 +12,16 @@ export default async function PublicSessionPage({
 
   const session = await prisma.session.findUnique({
     where: { shareSlug: slug },
-    include: { exercises: { orderBy: { orderIndex: "asc" }, include: { exercise: true } } },
+    include: {
+      exercises: { orderBy: { orderIndex: "asc" }, include: { exercise: true } },
+      blocks: {
+        orderBy: { orderIndex: "asc" },
+        include: { category: true, exercises: { orderBy: { orderIndex: "asc" }, include: { exercise: true } } },
+      },
+    },
   });
   if (!session) notFound();
+  const hasBlocks = session.blocks.length > 0;
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 px-4 py-8">
@@ -30,14 +37,42 @@ export default async function PublicSessionPage({
         <p className="text-sm text-zinc-500">How was today&apos;s session?</p>
       </div>
 
-      <ul className="flex flex-col divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
-        {session.exercises.map((se) => (
-          <li key={se.id} className="flex items-center justify-between px-4 py-2 text-sm">
-            <span>{se.exercise.name}</span>
-            <span className="text-zinc-500">{se.allocatedMinutes} min</span>
-          </li>
-        ))}
-      </ul>
+      {hasBlocks ? (
+        <div className="flex flex-col gap-3">
+          {session.blocks.map((block) => (
+            <div key={block.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800">
+              <p className="border-b border-zinc-200 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                {block.type === "text" ? "Note" : block.category?.name ?? "Category"}
+              </p>
+              {block.type === "text" ? (
+                <p className="whitespace-pre-wrap px-4 py-2 text-sm">{block.textContent}</p>
+              ) : (
+                <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {block.exercises.map((se) => (
+                    <li key={se.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                      <span>{se.exercise.name}</span>
+                      <span className="text-zinc-500">
+                        {se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : ""}
+                        {se.weight !== null ? ` · ${se.weight} kg` : ""}
+                        {se.reps !== null ? ` · ${se.reps} reps` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <ul className="flex flex-col divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
+          {session.exercises.map((se) => (
+            <li key={se.id} className="flex items-center justify-between px-4 py-2 text-sm">
+              <span>{se.exercise.name}</span>
+              <span className="text-zinc-500">{se.allocatedMinutes} min</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {submitted ? (
         <p className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">

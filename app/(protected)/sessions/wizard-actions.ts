@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
-import { eligiblePoolForCategory, pickWeighted, SelectableExercise } from "@/lib/selection";
+import { eligiblePoolForCategory, pickWeightedMany, SelectableExercise } from "@/lib/selection";
 import { fetchForecastForDate, seasonForDate } from "@/lib/weather";
 
 export async function getWizardContext(dateStr: string) {
@@ -28,7 +28,7 @@ export async function getWizardContext(dateStr: string) {
 export type Suggestion = {
   categoryId: string;
   categoryName: string;
-  chosen: SelectableExercise | undefined;
+  picks: SelectableExercise[];
   pool: SelectableExercise[];
 };
 
@@ -65,26 +65,44 @@ export async function getSuggestions(
       season,
       weatherFilterOn: settings.weatherFilter,
       seasonFilterOn: settings.seasonFilter,
+      recencyFilterOn: settings.recencyFilter,
+      recencyWeeks: settings.recencyWeeks,
       lastUsedByExerciseId,
       sessionDate: date,
     });
-    const chosen = pickWeighted(pool) ?? pool[0];
+    const picks = pickWeightedMany(pool, settings.exercisesPerCategoryDefault);
     return {
       categoryId: category.id,
       categoryName: category.name,
-      chosen,
+      picks,
       pool,
     };
   });
 }
+
+export type BlockInput =
+  | {
+      type: "category";
+      categoryId: string;
+      exercises: { exerciseId: string; minutes?: number; weight?: number; reps?: number }[];
+    }
+  | { type: "text"; text: string };
 
 export async function createSession(input: {
   dateStr: string;
   targetMinutes: number;
   notes?: string;
   attendanceCount?: number;
-  exercises: { exerciseId: string; allocatedMinutes: number }[];
+  blocks: BlockInput[];
 }) {
+  const warmup = await prisma.category.findFirst({ where: { name: "Warm-up" } });
+
+  const orderedBlocks = [...input.blocks].sort((a, b) => {
+    const aIsWarmup = a.type === "category" && warmup && a.categoryId === warmup.id ? 0 : 1;
+    const bIsWarmup = b.type === "category" && warmup && b.categoryId === warmup.id ? 0 : 1;
+    return aIsWarmup - bIsWarmup;
+  });
+
   const shareSlug = randomBytes(9).toString("base64url");
   const session = await prisma.session.create({
     data: {
@@ -93,15 +111,36 @@ export async function createSession(input: {
       notes: input.notes || null,
       attendanceCount: input.attendanceCount ?? null,
       shareSlug,
-      exercises: {
-        create: input.exercises.map((e, i) => ({
-          exerciseId: e.exerciseId,
-          allocatedMinutes: e.allocatedMinutes,
-          orderIndex: i,
-        })),
+      blocks: {
+        create: orderedBlocks.map((block, i) =>
+          block.type === "text"
+            ? { orderIndex: i, type: "text", textContent: block.text }
+            : { orderIndex: i, type: "category", categoryId: block.categoryId },
+        ),
       },
     },
+    include: { blocks: true },
   });
+
+  // Created as a second pass (rather than nested under blocks above) because
+  // SessionExercise.sessionId is a sibling relation to blockId, not an ancestor in
+  // the nested-write tree, so Prisma can't infer it from the blocks.create() nesting.
+  for (const [i, block] of orderedBlocks.entries()) {
+    if (block.type !== "category") continue;
+    const createdBlock = session.blocks[i];
+    await prisma.sessionExercise.createMany({
+      data: block.exercises.map((e, j) => ({
+        sessionId: session.id,
+        blockId: createdBlock.id,
+        exerciseId: e.exerciseId,
+        orderIndex: j,
+        allocatedMinutes: e.minutes ?? null,
+        weight: e.weight ?? null,
+        reps: e.reps ?? null,
+      })),
+    });
+  }
+
   revalidatePath("/sessions");
   redirect(`/sessions/${session.id}`);
 }

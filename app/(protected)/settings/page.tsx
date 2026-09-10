@@ -2,6 +2,8 @@ import { getSettings } from "@/lib/settings";
 import { LOCATION } from "@/lib/constants";
 import { updateSettings } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   const settings = await getSettings();
 

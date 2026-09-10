@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { ExerciseForm } from "../ExerciseForm";
 import { createExercise } from "../actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function NewExercisePage() {
   const categories = await prisma.category.findMany({ orderBy: { sortOrder: "asc" } });
 

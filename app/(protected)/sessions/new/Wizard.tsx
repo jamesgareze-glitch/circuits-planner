@@ -182,8 +182,11 @@ export function Wizard() {
     });
   }
 
-  // Warm-up always leads, Abs always finishes the session — everything else
-  // keeps whatever order it was generated/added in (stable sort).
+  // Warm-up always leads, Abs always finishes the session. Everything else is
+  // ordered by the category's sortOrder — derived from how these categories
+  // actually sequence across the historical sessions (Cardio, then Lower Body,
+  // Upper Body, Full Body/Strength, Games) — rather than whatever order they
+  // happened to be picked/generated in.
   function blockRank(b: Block): number {
     if (b.kind !== "category") return 1;
     if (b.categoryName === "Warm-up") return 0;
@@ -191,8 +194,13 @@ export function Wizard() {
     return 1;
   }
 
-  function sortWarmupFirstAbsLast(list: Block[]): Block[] {
-    return [...list].sort((a, b) => blockRank(a) - blockRank(b));
+  function sortWarmupFirstAbsLast(list: CategoryBlock[], categoryOrder: Category[]): CategoryBlock[] {
+    const orderIndex = new Map(categoryOrder.map((c, i) => [c.id, i]));
+    return [...list].sort((a, b) => {
+      const rankDiff = blockRank(a) - blockRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return (orderIndex.get(a.categoryId) ?? 0) - (orderIndex.get(b.categoryId) ?? 0);
+    });
   }
 
   function goToStep3() {
@@ -211,7 +219,7 @@ export function Wizard() {
         );
         return;
       }
-      setBlocks(sortWarmupFirstAbsLast(newBlocks));
+      setBlocks(sortWarmupFirstAbsLast(newBlocks, categories));
       setStep(3);
     });
   }

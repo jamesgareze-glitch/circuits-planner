@@ -6,8 +6,10 @@ import {
   getSuggestions,
   getWizardContext,
   BlockInput,
+  Suggestion,
 } from "../wizard-actions";
 import { SelectableExercise } from "@/lib/selection";
+import { RoutineFormat } from "@/lib/format";
 
 type Category = { id: string; name: string };
 
@@ -33,6 +35,13 @@ type CategoryBlock = {
   categoryName: string;
   pool: SelectableExercise[];
   items: ExerciseItem[];
+  format: RoutineFormat;
+  rounds: string;
+  workSeconds: string;
+  restSeconds: string;
+  timeCapMinutes: string;
+  isPartner: boolean;
+  partnerNote: string;
 };
 
 type TextBlock = {
@@ -55,6 +64,48 @@ function itemFromExercise(ex: SelectableExercise): ExerciseItem {
   return { id: uid(), exerciseId: ex.id, minutes: String(ex.estimatedMinutes), weight: "", reps: "" };
 }
 
+// Fallback values for whichever format fields aren't part of the server's
+// suggestion (e.g. "rounds" when the suggestion came back as AMRAP) — kept
+// sane so switching the format dropdown by hand always has something usable.
+const FALLBACK_FORMAT_FIELDS = {
+  rounds: "3",
+  workSeconds: "45",
+  restSeconds: "15",
+  timeCapMinutes: "12",
+};
+
+function categoryBlockFromSuggestion(r: Suggestion): CategoryBlock {
+  const s = r.suggestedFormat;
+  return {
+    id: uid(),
+    kind: "category",
+    categoryId: r.categoryId,
+    categoryName: r.categoryName,
+    pool: r.pool,
+    items: r.picks.map(itemFromExercise),
+    format: s.format,
+    rounds: s.rounds ? String(s.rounds) : FALLBACK_FORMAT_FIELDS.rounds,
+    workSeconds: s.workSeconds ? String(s.workSeconds) : FALLBACK_FORMAT_FIELDS.workSeconds,
+    restSeconds: s.restSeconds ? String(s.restSeconds) : FALLBACK_FORMAT_FIELDS.restSeconds,
+    timeCapMinutes: s.timeCapMinutes ? String(s.timeCapMinutes) : FALLBACK_FORMAT_FIELDS.timeCapMinutes,
+    isPartner: false,
+    partnerNote: "",
+  };
+}
+
+function blockMinutes(b: CategoryBlock): number {
+  if (b.format === "circuit") {
+    const rounds = Number(b.rounds) || 0;
+    const work = Number(b.workSeconds) || 0;
+    const rest = Number(b.restSeconds) || 0;
+    return (rounds * b.items.length * (work + rest)) / 60;
+  }
+  if (b.format === "amrap") {
+    return Number(b.timeCapMinutes) || 0;
+  }
+  return b.items.reduce((s, it) => s + (Number(it.minutes) || 0), 0);
+}
+
 export function Wizard() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [pending, startTransition] = useTransition();
@@ -74,10 +125,9 @@ export function Wizard() {
 
   const totalMinutes = useMemo(
     () =>
-      blocks.reduce((sum, b) => {
-        if (b.kind !== "category") return sum;
-        return sum + b.items.reduce((s, it) => s + (Number(it.minutes) || 0), 0);
-      }, 0),
+      Math.round(
+        blocks.reduce((sum, b) => (b.kind === "category" ? sum + blockMinutes(b) : sum), 0),
+      ),
     [blocks],
   );
 
@@ -118,14 +168,7 @@ export function Wizard() {
     setError(null);
     startTransition(async () => {
       const results = await getSuggestions(date, selectedCategoryIds);
-      const newBlocks: CategoryBlock[] = results.map((r) => ({
-        id: uid(),
-        kind: "category",
-        categoryId: r.categoryId,
-        categoryName: r.categoryName,
-        pool: r.pool,
-        items: r.picks.map(itemFromExercise),
-      }));
+      const newBlocks: CategoryBlock[] = results.map(categoryBlockFromSuggestion);
       const empty = newBlocks.filter((b) => b.items.length === 0);
       if (empty.length > 0) {
         setError(
@@ -172,14 +215,7 @@ export function Wizard() {
         setError(`No exercises found for ${category.name}. Add some in the exercise library first.`);
         return;
       }
-      const newBlock: CategoryBlock = {
-        id: uid(),
-        kind: "category",
-        categoryId: r.categoryId,
-        categoryName: r.categoryName,
-        pool: r.pool,
-        items: r.picks.map(itemFromExercise),
-      };
+      const newBlock = categoryBlockFromSuggestion(r);
       setBlocks((prev) => [...prev, newBlock]);
       setAddCategoryId("");
     });
@@ -231,6 +267,28 @@ export function Wizard() {
     );
   }
 
+  function updateBlockFormat(blockId: string, format: RoutineFormat) {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId && b.kind === "category" ? { ...b, format } : b)),
+    );
+  }
+
+  function updateBlockField(
+    blockId: string,
+    field: "rounds" | "workSeconds" | "restSeconds" | "timeCapMinutes" | "partnerNote",
+    value: string,
+  ) {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId && b.kind === "category" ? { ...b, [field]: value } : b)),
+    );
+  }
+
+  function updateBlockPartner(blockId: string, isPartner: boolean) {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId && b.kind === "category" ? { ...b, isPartner } : b)),
+    );
+  }
+
   function save() {
     setError(null);
     const blockInputs: BlockInput[] = blocks
@@ -242,9 +300,16 @@ export function Wizard() {
         return {
           type: "category",
           categoryId: b.categoryId,
+          format: b.format,
+          rounds: b.format === "circuit" && b.rounds ? Number(b.rounds) : undefined,
+          workSeconds: b.format === "circuit" && b.workSeconds ? Number(b.workSeconds) : undefined,
+          restSeconds: b.format === "circuit" && b.restSeconds ? Number(b.restSeconds) : undefined,
+          timeCapMinutes: b.format === "amrap" && b.timeCapMinutes ? Number(b.timeCapMinutes) : undefined,
+          isPartner: b.isPartner,
+          partnerNote: b.isPartner && b.partnerNote ? b.partnerNote : undefined,
           exercises: b.items.map((it) => ({
             exerciseId: it.exerciseId,
-            minutes: it.minutes ? Number(it.minutes) : undefined,
+            minutes: b.format === "straight_sets" && it.minutes ? Number(it.minutes) : undefined,
             weight: it.weight ? Number(it.weight) : undefined,
             reps: it.reps ? Number(it.reps) : undefined,
           })),
@@ -416,6 +481,88 @@ export function Wizard() {
                   />
                 ) : (
                   <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900/50">
+                      <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400">
+                        Format
+                        <select
+                          value={b.format}
+                          onChange={(e) => updateBlockFormat(b.id, e.target.value as RoutineFormat)}
+                          className="rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                        >
+                          <option value="straight_sets">Straight sets</option>
+                          <option value="circuit">Circuit (rounds)</option>
+                          <option value="amrap">AMRAP</option>
+                        </select>
+                      </label>
+
+                      {b.format === "circuit" && (
+                        <>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rounds
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.rounds}
+                              onChange={(e) => updateBlockField(b.id, "rounds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Work (s)
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.workSeconds}
+                              onChange={(e) => updateBlockField(b.id, "workSeconds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rest (s)
+                            <input
+                              type="number"
+                              min={0}
+                              value={b.restSeconds}
+                              onChange={(e) => updateBlockField(b.id, "restSeconds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                        </>
+                      )}
+
+                      {b.format === "amrap" && (
+                        <label className="flex items-center gap-1 text-xs">
+                          Time cap (min)
+                          <input
+                            type="number"
+                            min={1}
+                            value={b.timeCapMinutes}
+                            onChange={(e) => updateBlockField(b.id, "timeCapMinutes", e.target.value)}
+                            className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                          />
+                        </label>
+                      )}
+
+                      <label className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={b.isPartner}
+                          onChange={(e) => updateBlockPartner(b.id, e.target.checked)}
+                        />
+                        Partner workout
+                      </label>
+                    </div>
+
+                    {b.isPartner && (
+                      <input
+                        type="text"
+                        placeholder="Partner mechanic (e.g. partner 1 holds plank while partner 2 does reps, then swap)"
+                        value={b.partnerNote}
+                        onChange={(e) => updateBlockField(b.id, "partnerNote", e.target.value)}
+                        className="w-full rounded-lg border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                      />
+                    )}
+
                     {b.items.map((item) => (
                       <div key={item.id} className="flex flex-wrap items-center gap-2">
                         <select
@@ -429,14 +576,18 @@ export function Wizard() {
                             </option>
                           ))}
                         </select>
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.minutes}
-                          onChange={(e) => updateItemField(b.id, item.id, "minutes", e.target.value)}
-                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                        />
-                        <span className="text-xs text-zinc-500">min</span>
+                        {b.format === "straight_sets" && (
+                          <>
+                            <input
+                              type="number"
+                              min={1}
+                              value={item.minutes}
+                              onChange={(e) => updateItemField(b.id, item.id, "minutes", e.target.value)}
+                              className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                            <span className="text-xs text-zinc-500">min</span>
+                          </>
+                        )}
                         <input
                           type="number"
                           min={0}

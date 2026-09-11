@@ -72,7 +72,8 @@ export default async function SessionDetailPage({ params }: PageProps<"/sessions
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Exercises</h2>
           {session.blocks.map((block) => {
-            const formatSummary = block.type === "category" ? describeBlockFormat(block) : null;
+            const formatSummary =
+              block.type === "category" ? describeBlockFormat(block, block.exercises.length) : null;
             return (
               <div key={block.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800">
                 <div className="border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
@@ -90,9 +91,13 @@ export default async function SessionDetailPage({ params }: PageProps<"/sessions
                       <li key={se.id} className="flex items-center justify-between px-4 py-3">
                         <span className="font-medium text-zinc-900 dark:text-zinc-50">{se.exercise.name}</span>
                         <span className="text-sm text-zinc-500">
-                          {se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : ""}
-                          {se.weight !== null ? ` · ${se.weight} kg` : ""}
-                          {se.reps !== null ? ` · ${se.reps} reps` : ""}
+                          {[
+                            se.reps !== null ? `${se.reps} reps` : null,
+                            se.weight !== null ? `${se.weight} kg` : null,
+                            se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </span>
                       </li>
                     ))}

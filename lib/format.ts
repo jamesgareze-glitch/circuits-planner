@@ -1,3 +1,5 @@
+export type RoutineFormat = "straight_sets" | "circuit" | "amrap";
+
 type FormatFields = {
   format: string;
   rounds: number | null;

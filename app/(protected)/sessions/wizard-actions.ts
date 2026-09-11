@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
 import { eligiblePoolForCategory, pickWeightedMany, SelectableExercise } from "@/lib/selection";
 import { fetchForecastForDate, seasonForDate } from "@/lib/weather";
+import { RoutineFormat } from "@/lib/format";
+import { RoutineSuggestion, suggestRoutine } from "@/lib/routineSuggestion";
 
 export async function getWizardContext(dateStr: string) {
   const date = new Date(`${dateStr}T09:00:00`);
@@ -30,6 +32,7 @@ export type Suggestion = {
   categoryName: string;
   picks: SelectableExercise[];
   pool: SelectableExercise[];
+  suggestedFormat: RoutineSuggestion;
 };
 
 export async function getSuggestions(
@@ -76,11 +79,10 @@ export async function getSuggestions(
       categoryName: category.name,
       picks,
       pool,
+      suggestedFormat: suggestRoutine(),
     };
   });
 }
-
-export type RoutineFormat = "straight_sets" | "circuit" | "amrap";
 
 export type BlockInput =
   | {

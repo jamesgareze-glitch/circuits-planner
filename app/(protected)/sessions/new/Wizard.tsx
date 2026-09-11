@@ -6,9 +6,10 @@ import {
   getSuggestions,
   getWizardContext,
   BlockInput,
-  RoutineFormat,
+  Suggestion,
 } from "../wizard-actions";
 import { SelectableExercise } from "@/lib/selection";
+import { RoutineFormat } from "@/lib/format";
 
 type Category = { id: string; name: string };
 
@@ -63,15 +64,34 @@ function itemFromExercise(ex: SelectableExercise): ExerciseItem {
   return { id: uid(), exerciseId: ex.id, minutes: String(ex.estimatedMinutes), weight: "", reps: "" };
 }
 
-const DEFAULT_FORMAT_FIELDS = {
-  format: "straight_sets" as RoutineFormat,
+// Fallback values for whichever format fields aren't part of the server's
+// suggestion (e.g. "rounds" when the suggestion came back as AMRAP) — kept
+// sane so switching the format dropdown by hand always has something usable.
+const FALLBACK_FORMAT_FIELDS = {
   rounds: "3",
   workSeconds: "45",
   restSeconds: "15",
   timeCapMinutes: "12",
-  isPartner: false,
-  partnerNote: "",
 };
+
+function categoryBlockFromSuggestion(r: Suggestion): CategoryBlock {
+  const s = r.suggestedFormat;
+  return {
+    id: uid(),
+    kind: "category",
+    categoryId: r.categoryId,
+    categoryName: r.categoryName,
+    pool: r.pool,
+    items: r.picks.map(itemFromExercise),
+    format: s.format,
+    rounds: s.rounds ? String(s.rounds) : FALLBACK_FORMAT_FIELDS.rounds,
+    workSeconds: s.workSeconds ? String(s.workSeconds) : FALLBACK_FORMAT_FIELDS.workSeconds,
+    restSeconds: s.restSeconds ? String(s.restSeconds) : FALLBACK_FORMAT_FIELDS.restSeconds,
+    timeCapMinutes: s.timeCapMinutes ? String(s.timeCapMinutes) : FALLBACK_FORMAT_FIELDS.timeCapMinutes,
+    isPartner: false,
+    partnerNote: "",
+  };
+}
 
 function blockMinutes(b: CategoryBlock): number {
   if (b.format === "circuit") {
@@ -148,15 +168,7 @@ export function Wizard() {
     setError(null);
     startTransition(async () => {
       const results = await getSuggestions(date, selectedCategoryIds);
-      const newBlocks: CategoryBlock[] = results.map((r) => ({
-        id: uid(),
-        kind: "category",
-        categoryId: r.categoryId,
-        categoryName: r.categoryName,
-        pool: r.pool,
-        items: r.picks.map(itemFromExercise),
-        ...DEFAULT_FORMAT_FIELDS,
-      }));
+      const newBlocks: CategoryBlock[] = results.map(categoryBlockFromSuggestion);
       const empty = newBlocks.filter((b) => b.items.length === 0);
       if (empty.length > 0) {
         setError(
@@ -203,15 +215,7 @@ export function Wizard() {
         setError(`No exercises found for ${category.name}. Add some in the exercise library first.`);
         return;
       }
-      const newBlock: CategoryBlock = {
-        id: uid(),
-        kind: "category",
-        categoryId: r.categoryId,
-        categoryName: r.categoryName,
-        pool: r.pool,
-        items: r.picks.map(itemFromExercise),
-        ...DEFAULT_FORMAT_FIELDS,
-      };
+      const newBlock = categoryBlockFromSuggestion(r);
       setBlocks((prev) => [...prev, newBlock]);
       setAddCategoryId("");
     });

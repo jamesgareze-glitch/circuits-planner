@@ -76,13 +76,21 @@ model SessionBlock {
   exercises   SessionExercise[]
 
   // Routine structure (category blocks only)
-  format         String  @default("straight_sets") // "straight_sets" | "circuit" | "amrap"
+  format         String   @default("straight_sets") // "straight_sets" | "circuit" | "amrap" | "emom" | "wod" | "tabata" | "superset" | "ladder"
   rounds         Int?
   workSeconds    Int?
   restSeconds    Int?
   timeCapMinutes Int?
-  isPartner      Boolean @default(false)
+  isPartner      Boolean  @default(false)
   partnerNote    String?
+
+  // Ladder-specific (format = "ladder"): reps or seconds climb from ladderStart to
+  // ladderEnd in steps of ladderStep; if ladderPyramid, it climbs back down again.
+  ladderStart   Int?
+  ladderEnd     Int?
+  ladderStep    Int?
+  ladderPyramid Boolean @default(false)
+  ladderUnit    String? // "reps" | "seconds"
 
   @@index([sessionId])
 }

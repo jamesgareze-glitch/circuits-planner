@@ -94,6 +94,11 @@ export type BlockInput =
       workSeconds?: number;
       restSeconds?: number;
       timeCapMinutes?: number;
+      ladderStart?: number;
+      ladderEnd?: number;
+      ladderStep?: number;
+      ladderPyramid?: boolean;
+      ladderUnit?: string;
       isPartner: boolean;
       partnerNote?: string;
     }
@@ -140,6 +145,11 @@ export async function createSession(input: {
                 workSeconds: block.workSeconds ?? null,
                 restSeconds: block.restSeconds ?? null,
                 timeCapMinutes: block.timeCapMinutes ?? null,
+                ladderStart: block.ladderStart ?? null,
+                ladderEnd: block.ladderEnd ?? null,
+                ladderStep: block.ladderStep ?? null,
+                ladderPyramid: block.ladderPyramid ?? false,
+                ladderUnit: block.ladderUnit ?? null,
                 isPartner: block.isPartner,
                 partnerNote: block.partnerNote || null,
               },

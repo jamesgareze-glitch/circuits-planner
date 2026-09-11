@@ -72,7 +72,8 @@ export default async function SessionDetailPage({ params }: PageProps<"/sessions
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-medium">Exercises</h2>
           {session.blocks.map((block) => {
-            const formatSummary = block.type === "category" ? describeBlockFormat(block) : null;
+            const formatSummary =
+              block.type === "category" ? describeBlockFormat(block, block.exercises.length) : null;
             return (
               <div key={block.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800">
                 <div className="border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">

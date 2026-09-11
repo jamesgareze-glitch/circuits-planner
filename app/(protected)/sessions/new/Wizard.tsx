@@ -9,7 +9,7 @@ import {
   Suggestion,
 } from "../wizard-actions";
 import { SelectableExercise } from "@/lib/selection";
-import { RoutineFormat } from "@/lib/format";
+import { ladderRungs, RoutineFormat } from "@/lib/format";
 
 type Category = { id: string; name: string };
 
@@ -40,6 +40,11 @@ type CategoryBlock = {
   workSeconds: string;
   restSeconds: string;
   timeCapMinutes: string;
+  ladderStart: string;
+  ladderEnd: string;
+  ladderStep: string;
+  ladderPyramid: boolean;
+  ladderUnit: string;
   isPartner: boolean;
   partnerNote: string;
 };
@@ -72,6 +77,9 @@ const FALLBACK_FORMAT_FIELDS = {
   workSeconds: "45",
   restSeconds: "15",
   timeCapMinutes: "12",
+  ladderStart: "2",
+  ladderEnd: "12",
+  ladderStep: "2",
 };
 
 function categoryBlockFromSuggestion(r: Suggestion): CategoryBlock {
@@ -88,17 +96,22 @@ function categoryBlockFromSuggestion(r: Suggestion): CategoryBlock {
     workSeconds: s.workSeconds ? String(s.workSeconds) : FALLBACK_FORMAT_FIELDS.workSeconds,
     restSeconds: s.restSeconds ? String(s.restSeconds) : FALLBACK_FORMAT_FIELDS.restSeconds,
     timeCapMinutes: s.timeCapMinutes ? String(s.timeCapMinutes) : FALLBACK_FORMAT_FIELDS.timeCapMinutes,
+    ladderStart: s.ladderStart ? String(s.ladderStart) : FALLBACK_FORMAT_FIELDS.ladderStart,
+    ladderEnd: s.ladderEnd ? String(s.ladderEnd) : FALLBACK_FORMAT_FIELDS.ladderEnd,
+    ladderStep: s.ladderStep ? String(s.ladderStep) : FALLBACK_FORMAT_FIELDS.ladderStep,
+    ladderPyramid: s.ladderPyramid ?? false,
+    ladderUnit: s.ladderUnit ?? "reps",
     isPartner: false,
     partnerNote: "",
   };
 }
 
 function blockMinutes(b: CategoryBlock): number {
-  if (b.format === "circuit" || b.format === "emom") {
+  if (b.format === "circuit" || b.format === "emom" || b.format === "tabata") {
     const rounds = Number(b.rounds) || 0;
     const work = Number(b.workSeconds) || 0;
-    const rest = b.format === "circuit" ? Number(b.restSeconds) || 0 : 0;
-    const perRound = b.format === "circuit" ? b.items.length : 1;
+    const rest = b.format === "emom" ? 0 : Number(b.restSeconds) || 0;
+    const perRound = b.format === "emom" ? 1 : b.items.length;
     return (rounds * perRound * (work + rest)) / 60;
   }
   if (b.format === "amrap") {
@@ -108,6 +121,18 @@ function blockMinutes(b: CategoryBlock): number {
     return rounds * work + Math.max(rounds - 1, 0) * rest;
   }
   if (b.format === "wod") return 0;
+  if (b.format === "superset") {
+    const sets = Number(b.rounds) || 1;
+    const restPerSet = Number(b.restSeconds) || 0;
+    return (Math.max(sets - 1, 0) * restPerSet) / 60;
+  }
+  if (b.format === "ladder") {
+    if (b.ladderUnit !== "seconds") return 0;
+    const rungs = ladderRungs(Number(b.ladderStart) || 0, Number(b.ladderEnd) || 0, Number(b.ladderStep) || 1, b.ladderPyramid);
+    const workSeconds = rungs.reduce((s, r) => s + r, 0);
+    const restSeconds = (Number(b.restSeconds) || 0) * Math.max(rungs.length - 1, 0);
+    return (workSeconds + restSeconds) / 60;
+  }
   return b.items.reduce((s, it) => s + (Number(it.minutes) || 0), 0);
 }
 
@@ -290,7 +315,15 @@ export function Wizard() {
 
   function updateBlockField(
     blockId: string,
-    field: "rounds" | "workSeconds" | "restSeconds" | "timeCapMinutes" | "partnerNote",
+    field:
+      | "rounds"
+      | "workSeconds"
+      | "restSeconds"
+      | "timeCapMinutes"
+      | "partnerNote"
+      | "ladderStart"
+      | "ladderEnd"
+      | "ladderStep",
     value: string,
   ) {
     setBlocks((prev) =>
@@ -301,6 +334,18 @@ export function Wizard() {
   function updateBlockPartner(blockId: string, isPartner: boolean) {
     setBlocks((prev) =>
       prev.map((b) => (b.id === blockId && b.kind === "category" ? { ...b, isPartner } : b)),
+    );
+  }
+
+  function updateBlockLadderPyramid(blockId: string, ladderPyramid: boolean) {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId && b.kind === "category" ? { ...b, ladderPyramid } : b)),
+    );
+  }
+
+  function updateBlockLadderUnit(blockId: string, ladderUnit: string) {
+    setBlocks((prev) =>
+      prev.map((b) => (b.id === blockId && b.kind === "category" ? { ...b, ladderUnit } : b)),
     );
   }
 
@@ -317,18 +362,29 @@ export function Wizard() {
           categoryId: b.categoryId,
           format: b.format,
           rounds:
-            (b.format === "circuit" || b.format === "emom" || b.format === "amrap") && b.rounds
+            (b.format === "circuit" || b.format === "emom" || b.format === "amrap" || b.format === "tabata" || b.format === "superset") &&
+            b.rounds
               ? Number(b.rounds)
               : undefined,
           workSeconds:
-            (b.format === "circuit" || b.format === "emom") && b.workSeconds
+            (b.format === "circuit" || b.format === "emom" || b.format === "tabata") && b.workSeconds
               ? Number(b.workSeconds)
               : undefined,
           restSeconds:
-            (b.format === "circuit" || (b.format === "amrap" && Number(b.rounds) > 1)) && b.restSeconds
+            (b.format === "circuit" ||
+              b.format === "tabata" ||
+              b.format === "superset" ||
+              b.format === "ladder" ||
+              (b.format === "amrap" && Number(b.rounds) > 1)) &&
+            b.restSeconds
               ? Number(b.restSeconds)
               : undefined,
           timeCapMinutes: b.format === "amrap" && b.timeCapMinutes ? Number(b.timeCapMinutes) : undefined,
+          ladderStart: b.format === "ladder" && b.ladderStart ? Number(b.ladderStart) : undefined,
+          ladderEnd: b.format === "ladder" && b.ladderEnd ? Number(b.ladderEnd) : undefined,
+          ladderStep: b.format === "ladder" && b.ladderStep ? Number(b.ladderStep) : undefined,
+          ladderPyramid: b.format === "ladder" ? b.ladderPyramid : undefined,
+          ladderUnit: b.format === "ladder" ? b.ladderUnit : undefined,
           isPartner: b.isPartner,
           partnerNote: b.isPartner && b.partnerNote ? b.partnerNote : undefined,
           exercises: b.items.map((it) => ({
@@ -517,6 +573,9 @@ export function Wizard() {
                           <option value="circuit">Circuit (rounds)</option>
                           <option value="emom">EMOM</option>
                           <option value="amrap">AMRAP</option>
+                          <option value="tabata">Tabata</option>
+                          <option value="superset">Superset / Triset</option>
+                          <option value="ladder">Ladder / Pyramid</option>
                           <option value="wod">WOD (for time)</option>
                         </select>
                       </label>
@@ -614,6 +673,134 @@ export function Wizard() {
                                 className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
                               />
                             </label>
+                          )}
+                        </>
+                      )}
+
+                      {b.format === "tabata" && (
+                        <>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rounds
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.rounds}
+                              onChange={(e) => updateBlockField(b.id, "rounds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Work (s)
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.workSeconds}
+                              onChange={(e) => updateBlockField(b.id, "workSeconds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rest (s)
+                            <input
+                              type="number"
+                              min={0}
+                              value={b.restSeconds}
+                              onChange={(e) => updateBlockField(b.id, "restSeconds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <span className="text-xs text-zinc-500">(classic Tabata: 8 x 20s/10s)</span>
+                        </>
+                      )}
+
+                      {b.format === "superset" && (
+                        <>
+                          <label className="flex items-center gap-1 text-xs">
+                            Sets
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.rounds}
+                              onChange={(e) => updateBlockField(b.id, "rounds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rest between sets (s)
+                            <input
+                              type="number"
+                              min={0}
+                              value={b.restSeconds}
+                              onChange={(e) => updateBlockField(b.id, "restSeconds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <span className="text-xs text-zinc-500">
+                            (no rest between exercises — labelled Superset/Triset/Giant set by exercise count)
+                          </span>
+                        </>
+                      )}
+
+                      {b.format === "ladder" && (
+                        <>
+                          <label className="flex items-center gap-1 text-xs">
+                            Start
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.ladderStart}
+                              onChange={(e) => updateBlockField(b.id, "ladderStart", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            End
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.ladderEnd}
+                              onChange={(e) => updateBlockField(b.id, "ladderEnd", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Step
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.ladderStep}
+                              onChange={(e) => updateBlockField(b.id, "ladderStep", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Unit
+                            <select
+                              value={b.ladderUnit}
+                              onChange={(e) => updateBlockLadderUnit(b.id, e.target.value)}
+                              className="rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            >
+                              <option value="reps">reps</option>
+                              <option value="seconds">seconds</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={b.ladderPyramid}
+                              onChange={(e) => updateBlockLadderPyramid(b.id, e.target.checked)}
+                            />
+                            Pyramid (climb back down)
+                          </label>
+                          {b.ladderStart && b.ladderEnd && (
+                            <span className="text-xs text-zinc-500">
+                              {ladderRungs(
+                                Number(b.ladderStart) || 0,
+                                Number(b.ladderEnd) || 0,
+                                Number(b.ladderStep) || 1,
+                                b.ladderPyramid,
+                              ).join("/")}
+                            </span>
                           )}
                         </>
                       )}

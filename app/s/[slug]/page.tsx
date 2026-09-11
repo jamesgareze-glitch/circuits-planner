@@ -41,7 +41,8 @@ export default async function PublicSessionPage({
       {hasBlocks ? (
         <div className="flex flex-col gap-3">
           {session.blocks.map((block) => {
-            const formatSummary = block.type === "category" ? describeBlockFormat(block) : null;
+            const formatSummary =
+              block.type === "category" ? describeBlockFormat(block, block.exercises.length) : null;
             return (
               <div key={block.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800">
                 <div className="border-b border-zinc-200 px-4 py-1.5 dark:border-zinc-800">

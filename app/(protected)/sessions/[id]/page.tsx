@@ -2,7 +2,8 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { CopyLink } from "./CopyLink";
-import { updateSessionDetails } from "./actions";
+import { DeleteSessionButton } from "./DeleteSessionButton";
+import { deleteSession, updateSessionDetails } from "./actions";
 
 export default async function SessionDetailPage({ params }: PageProps<"/sessions/[id]">) {
   const { id } = await params;
@@ -41,15 +42,21 @@ export default async function SessionDetailPage({ params }: PageProps<"/sessions
 
   return (
     <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-semibold">{session.title || dateLabel}</h1>
-        <p className="text-sm text-zinc-500">
-          {session.title ? `${dateLabel}${session.dateIsGuess ? " (date estimated)" : ""}` : null}
-          {session.title && (hasAllocatedMinutes || session.targetMinutes) ? " · " : ""}
-          {hasAllocatedMinutes && `${totalMinutes} min planned`}
-          {hasAllocatedMinutes && session.targetMinutes ? ` (target ${session.targetMinutes} min)` : ""}
-          {!hasAllocatedMinutes && session.targetMinutes ? `~${session.targetMinutes} min` : ""}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">{session.title || dateLabel}</h1>
+          <p className="text-sm text-zinc-500">
+            {session.title ? `${dateLabel}${session.dateIsGuess ? " (date estimated)" : ""}` : null}
+            {session.title && (hasAllocatedMinutes || session.targetMinutes) ? " · " : ""}
+            {hasAllocatedMinutes && `${totalMinutes} min planned`}
+            {hasAllocatedMinutes && session.targetMinutes ? ` (target ${session.targetMinutes} min)` : ""}
+            {!hasAllocatedMinutes && session.targetMinutes ? `~${session.targetMinutes} min` : ""}
+          </p>
+        </div>
+        <form action={deleteSession}>
+          <input type="hidden" name="id" value={session.id} />
+          <DeleteSessionButton label={session.title || dateLabel} />
+        </form>
       </div>
 
       {session.rawContent && (

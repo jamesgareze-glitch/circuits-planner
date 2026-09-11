@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
 export async function updateSessionDetails(formData: FormData) {
@@ -20,4 +21,13 @@ export async function updateSessionDetails(formData: FormData) {
   });
   revalidatePath(`/sessions/${id}`);
   revalidatePath("/sessions");
+}
+
+export async function deleteSession(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+
+  await prisma.session.delete({ where: { id } });
+  revalidatePath("/sessions");
+  redirect("/sessions");
 }

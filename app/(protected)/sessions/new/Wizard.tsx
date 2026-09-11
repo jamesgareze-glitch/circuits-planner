@@ -94,15 +94,20 @@ function categoryBlockFromSuggestion(r: Suggestion): CategoryBlock {
 }
 
 function blockMinutes(b: CategoryBlock): number {
-  if (b.format === "circuit") {
+  if (b.format === "circuit" || b.format === "emom") {
     const rounds = Number(b.rounds) || 0;
     const work = Number(b.workSeconds) || 0;
-    const rest = Number(b.restSeconds) || 0;
-    return (rounds * b.items.length * (work + rest)) / 60;
+    const rest = b.format === "circuit" ? Number(b.restSeconds) || 0 : 0;
+    const perRound = b.format === "circuit" ? b.items.length : 1;
+    return (rounds * perRound * (work + rest)) / 60;
   }
   if (b.format === "amrap") {
-    return Number(b.timeCapMinutes) || 0;
+    const rounds = Number(b.rounds) || 1;
+    const work = Number(b.timeCapMinutes) || 0;
+    const rest = (Number(b.restSeconds) || 0) / 60;
+    return rounds * work + Math.max(rounds - 1, 0) * rest;
   }
+  if (b.format === "wod") return 0;
   return b.items.reduce((s, it) => s + (Number(it.minutes) || 0), 0);
 }
 
@@ -152,12 +157,17 @@ export function Wizard() {
     });
   }
 
-  function sortWarmupFirst(list: Block[]): Block[] {
-    return [...list].sort((a, b) => {
-      const aFirst = a.kind === "category" && a.categoryName === "Warm-up" ? 0 : 1;
-      const bFirst = b.kind === "category" && b.categoryName === "Warm-up" ? 0 : 1;
-      return aFirst - bFirst;
-    });
+  // Warm-up always leads, Abs always finishes the session — everything else
+  // keeps whatever order it was generated/added in (stable sort).
+  function blockRank(b: Block): number {
+    if (b.kind !== "category") return 1;
+    if (b.categoryName === "Warm-up") return 0;
+    if (b.categoryName === "Abs") return 2;
+    return 1;
+  }
+
+  function sortWarmupFirstAbsLast(list: Block[]): Block[] {
+    return [...list].sort((a, b) => blockRank(a) - blockRank(b));
   }
 
   function goToStep3() {
@@ -176,7 +186,7 @@ export function Wizard() {
         );
         return;
       }
-      setBlocks(sortWarmupFirst(newBlocks));
+      setBlocks(sortWarmupFirstAbsLast(newBlocks));
       setStep(3);
     });
   }
@@ -216,7 +226,12 @@ export function Wizard() {
         return;
       }
       const newBlock = categoryBlockFromSuggestion(r);
-      setBlocks((prev) => [...prev, newBlock]);
+      // Insert respecting the warm-up-first/abs-last convention on arrival, without
+      // re-sorting the whole list (which would undo any manual reordering she's done).
+      setBlocks((prev) => {
+        if (newBlock.categoryName === "Warm-up") return [newBlock, ...prev];
+        return [...prev, newBlock];
+      });
       setAddCategoryId("");
     });
   }
@@ -301,9 +316,18 @@ export function Wizard() {
           type: "category",
           categoryId: b.categoryId,
           format: b.format,
-          rounds: b.format === "circuit" && b.rounds ? Number(b.rounds) : undefined,
-          workSeconds: b.format === "circuit" && b.workSeconds ? Number(b.workSeconds) : undefined,
-          restSeconds: b.format === "circuit" && b.restSeconds ? Number(b.restSeconds) : undefined,
+          rounds:
+            (b.format === "circuit" || b.format === "emom" || b.format === "amrap") && b.rounds
+              ? Number(b.rounds)
+              : undefined,
+          workSeconds:
+            (b.format === "circuit" || b.format === "emom") && b.workSeconds
+              ? Number(b.workSeconds)
+              : undefined,
+          restSeconds:
+            (b.format === "circuit" || (b.format === "amrap" && Number(b.rounds) > 1)) && b.restSeconds
+              ? Number(b.restSeconds)
+              : undefined,
           timeCapMinutes: b.format === "amrap" && b.timeCapMinutes ? Number(b.timeCapMinutes) : undefined,
           isPartner: b.isPartner,
           partnerNote: b.isPartner && b.partnerNote ? b.partnerNote : undefined,
@@ -491,7 +515,9 @@ export function Wizard() {
                         >
                           <option value="straight_sets">Straight sets</option>
                           <option value="circuit">Circuit (rounds)</option>
+                          <option value="emom">EMOM</option>
                           <option value="amrap">AMRAP</option>
+                          <option value="wod">WOD (for time)</option>
                         </select>
                       </label>
 
@@ -530,17 +556,66 @@ export function Wizard() {
                         </>
                       )}
 
+                      {b.format === "emom" && (
+                        <>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rounds (mins)
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.rounds}
+                              onChange={(e) => updateBlockField(b.id, "rounds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Interval (s)
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.workSeconds}
+                              onChange={(e) => updateBlockField(b.id, "workSeconds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                        </>
+                      )}
+
                       {b.format === "amrap" && (
-                        <label className="flex items-center gap-1 text-xs">
-                          Time cap (min)
-                          <input
-                            type="number"
-                            min={1}
-                            value={b.timeCapMinutes}
-                            onChange={(e) => updateBlockField(b.id, "timeCapMinutes", e.target.value)}
-                            className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                          />
-                        </label>
+                        <>
+                          <label className="flex items-center gap-1 text-xs">
+                            Rounds
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.rounds}
+                              onChange={(e) => updateBlockField(b.id, "rounds", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          <label className="flex items-center gap-1 text-xs">
+                            Work (min)
+                            <input
+                              type="number"
+                              min={1}
+                              value={b.timeCapMinutes}
+                              onChange={(e) => updateBlockField(b.id, "timeCapMinutes", e.target.value)}
+                              className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                            />
+                          </label>
+                          {Number(b.rounds) > 1 && (
+                            <label className="flex items-center gap-1 text-xs">
+                              Rest (s)
+                              <input
+                                type="number"
+                                min={0}
+                                value={b.restSeconds}
+                                onChange={(e) => updateBlockField(b.id, "restSeconds", e.target.value)}
+                                className="w-14 rounded border border-zinc-300 px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                              />
+                            </label>
+                          )}
+                        </>
                       )}
 
                       <label className="flex items-center gap-1 text-xs">
@@ -576,6 +651,25 @@ export function Wizard() {
                             </option>
                           ))}
                         </select>
+                        <input
+                          type="number"
+                          min={0}
+                          placeholder="reps"
+                          value={item.reps}
+                          onChange={(e) => updateItemField(b.id, item.id, "reps", e.target.value)}
+                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        />
+                        <span className="text-xs text-zinc-500">reps</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          placeholder="kg"
+                          value={item.weight}
+                          onChange={(e) => updateItemField(b.id, item.id, "weight", e.target.value)}
+                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                        />
+                        <span className="text-xs text-zinc-500">kg</span>
                         {b.format === "straight_sets" && (
                           <>
                             <input
@@ -588,25 +682,6 @@ export function Wizard() {
                             <span className="text-xs text-zinc-500">min</span>
                           </>
                         )}
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.5"
-                          placeholder="kg"
-                          value={item.weight}
-                          onChange={(e) => updateItemField(b.id, item.id, "weight", e.target.value)}
-                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                        />
-                        <span className="text-xs text-zinc-500">kg</span>
-                        <input
-                          type="number"
-                          min={0}
-                          placeholder="reps"
-                          value={item.reps}
-                          onChange={(e) => updateItemField(b.id, item.id, "reps", e.target.value)}
-                          className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                        />
-                        <span className="text-xs text-zinc-500">reps</span>
                         <button
                           type="button"
                           onClick={() => removeExerciseFromBlock(b.id, item.id)}

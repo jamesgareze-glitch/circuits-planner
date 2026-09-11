@@ -90,9 +90,13 @@ export default async function SessionDetailPage({ params }: PageProps<"/sessions
                       <li key={se.id} className="flex items-center justify-between px-4 py-3">
                         <span className="font-medium text-zinc-900 dark:text-zinc-50">{se.exercise.name}</span>
                         <span className="text-sm text-zinc-500">
-                          {se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : ""}
-                          {se.weight !== null ? ` · ${se.weight} kg` : ""}
-                          {se.reps !== null ? ` · ${se.reps} reps` : ""}
+                          {[
+                            se.reps !== null ? `${se.reps} reps` : null,
+                            se.weight !== null ? `${se.weight} kg` : null,
+                            se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </span>
                       </li>
                     ))}

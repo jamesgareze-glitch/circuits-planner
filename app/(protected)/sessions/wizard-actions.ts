@@ -106,13 +106,18 @@ export async function createSession(input: {
   attendanceCount?: number;
   blocks: BlockInput[];
 }) {
-  const warmup = await prisma.category.findFirst({ where: { name: "Warm-up" } });
+  const [warmup, abs] = await Promise.all([
+    prisma.category.findFirst({ where: { name: "Warm-up" } }),
+    prisma.category.findFirst({ where: { name: "Abs" } }),
+  ]);
 
-  const orderedBlocks = [...input.blocks].sort((a, b) => {
-    const aIsWarmup = a.type === "category" && warmup && a.categoryId === warmup.id ? 0 : 1;
-    const bIsWarmup = b.type === "category" && warmup && b.categoryId === warmup.id ? 0 : 1;
-    return aIsWarmup - bIsWarmup;
-  });
+  const blockRank = (b: BlockInput) => {
+    if (b.type !== "category") return 1;
+    if (warmup && b.categoryId === warmup.id) return 0;
+    if (abs && b.categoryId === abs.id) return 2;
+    return 1;
+  };
+  const orderedBlocks = [...input.blocks].sort((a, b) => blockRank(a) - blockRank(b));
 
   const shareSlug = randomBytes(9).toString("base64url");
   const session = await prisma.session.create({

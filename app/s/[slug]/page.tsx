@@ -59,9 +59,13 @@ export default async function PublicSessionPage({
                       <li key={se.id} className="flex items-center justify-between px-4 py-2 text-sm">
                         <span>{se.exercise.name}</span>
                         <span className="text-zinc-500">
-                          {se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : ""}
-                          {se.weight !== null ? ` · ${se.weight} kg` : ""}
-                          {se.reps !== null ? ` · ${se.reps} reps` : ""}
+                          {[
+                            se.reps !== null ? `${se.reps} reps` : null,
+                            se.weight !== null ? `${se.weight} kg` : null,
+                            se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </span>
                       </li>
                     ))}

@@ -10,17 +10,20 @@ export type RoutineSuggestion = {
 
 // Weights roughly reflect how often each shape actually shows up across the
 // historical sessions: circuit/interval structure is the single most common
-// pattern, AMRAP next, with plain "work through the list once" a bit less
-// common than either but still very real (warm-ups, simple runs).
+// pattern, AMRAP and EMOM next, with plain "work through the list once" and
+// WOD-style "for time" chippers real but less frequent.
 const FORMAT_WEIGHTS: { format: RoutineFormat; weight: number }[] = [
-  { format: "circuit", weight: 45 },
-  { format: "amrap", weight: 25 },
-  { format: "straight_sets", weight: 30 },
+  { format: "circuit", weight: 35 },
+  { format: "amrap", weight: 20 },
+  { format: "emom", weight: 15 },
+  { format: "straight_sets", weight: 20 },
+  { format: "wod", weight: 10 },
 ];
 
 const CIRCUIT_ROUNDS = [2, 3, 4];
 const CIRCUIT_WORK_SECONDS = [30, 40, 45];
 const CIRCUIT_REST_SECONDS = [10, 15, 20];
+const EMOM_ROUNDS = [6, 8, 10, 12];
 const AMRAP_TIME_CAPS = [8, 10, 12, 15];
 
 function randomFrom<T>(options: T[]): T {
@@ -50,8 +53,16 @@ export function suggestRoutine(): RoutineSuggestion {
       restSeconds: randomFrom(CIRCUIT_REST_SECONDS),
     };
   }
+  if (format === "emom") {
+    return { format, rounds: randomFrom(EMOM_ROUNDS), workSeconds: 60 };
+  }
   if (format === "amrap") {
-    return { format, timeCapMinutes: randomFrom(AMRAP_TIME_CAPS) };
+    // Single AMRAP block by default — repeated work/rest AMRAP rounds are an
+    // edit away (bump "rounds" above 1) rather than the common case.
+    return { format, rounds: 1, timeCapMinutes: randomFrom(AMRAP_TIME_CAPS), restSeconds: 60 };
+  }
+  if (format === "wod") {
+    return { format };
   }
   return { format: "straight_sets" };
 }

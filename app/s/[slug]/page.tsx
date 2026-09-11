@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { describeBlockFormat } from "@/lib/format";
 import { submitFeedback } from "./actions";
 
 export default async function PublicSessionPage({
@@ -39,29 +40,36 @@ export default async function PublicSessionPage({
 
       {hasBlocks ? (
         <div className="flex flex-col gap-3">
-          {session.blocks.map((block) => (
-            <div key={block.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <p className="border-b border-zinc-200 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                {block.type === "text" ? "Note" : block.category?.name ?? "Category"}
-              </p>
-              {block.type === "text" ? (
-                <p className="whitespace-pre-wrap px-4 py-2 text-sm">{block.textContent}</p>
-              ) : (
-                <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {block.exercises.map((se) => (
-                    <li key={se.id} className="flex items-center justify-between px-4 py-2 text-sm">
-                      <span>{se.exercise.name}</span>
-                      <span className="text-zinc-500">
-                        {se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : ""}
-                        {se.weight !== null ? ` · ${se.weight} kg` : ""}
-                        {se.reps !== null ? ` · ${se.reps} reps` : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
+          {session.blocks.map((block) => {
+            const formatSummary = block.type === "category" ? describeBlockFormat(block) : null;
+            return (
+              <div key={block.id} className="rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <div className="border-b border-zinc-200 px-4 py-1.5 dark:border-zinc-800">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    {block.type === "text" ? "Note" : block.category?.name ?? "Category"}
+                  </p>
+                  {formatSummary && <p className="mt-0.5 text-xs text-green-700 dark:text-green-400">{formatSummary}</p>}
+                  {block.partnerNote && <p className="mt-0.5 text-xs italic text-zinc-500">{block.partnerNote}</p>}
+                </div>
+                {block.type === "text" ? (
+                  <p className="whitespace-pre-wrap px-4 py-2 text-sm">{block.textContent}</p>
+                ) : (
+                  <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {block.exercises.map((se) => (
+                      <li key={se.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                        <span>{se.exercise.name}</span>
+                        <span className="text-zinc-500">
+                          {se.allocatedMinutes !== null ? `${se.allocatedMinutes} min` : ""}
+                          {se.weight !== null ? ` · ${se.weight} kg` : ""}
+                          {se.reps !== null ? ` · ${se.reps} reps` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <ul className="flex flex-col divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">

@@ -80,11 +80,20 @@ export async function getSuggestions(
   });
 }
 
+export type RoutineFormat = "straight_sets" | "circuit" | "amrap";
+
 export type BlockInput =
   | {
       type: "category";
       categoryId: string;
       exercises: { exerciseId: string; minutes?: number; weight?: number; reps?: number }[];
+      format: RoutineFormat;
+      rounds?: number;
+      workSeconds?: number;
+      restSeconds?: number;
+      timeCapMinutes?: number;
+      isPartner: boolean;
+      partnerNote?: string;
     }
   | { type: "text"; text: string };
 
@@ -115,7 +124,18 @@ export async function createSession(input: {
         create: orderedBlocks.map((block, i) =>
           block.type === "text"
             ? { orderIndex: i, type: "text", textContent: block.text }
-            : { orderIndex: i, type: "category", categoryId: block.categoryId },
+            : {
+                orderIndex: i,
+                type: "category",
+                categoryId: block.categoryId,
+                format: block.format,
+                rounds: block.rounds ?? null,
+                workSeconds: block.workSeconds ?? null,
+                restSeconds: block.restSeconds ?? null,
+                timeCapMinutes: block.timeCapMinutes ?? null,
+                isPartner: block.isPartner,
+                partnerNote: block.partnerNote || null,
+              },
         ),
       },
     },

@@ -75,6 +75,15 @@ model SessionBlock {
   textContent String?
   exercises   SessionExercise[]
 
+  // Routine structure (category blocks only)
+  format         String  @default("straight_sets") // "straight_sets" | "circuit" | "amrap"
+  rounds         Int?
+  workSeconds    Int?
+  restSeconds    Int?
+  timeCapMinutes Int?
+  isPartner      Boolean @default(false)
+  partnerNote    String?
+
   @@index([sessionId])
 }
 

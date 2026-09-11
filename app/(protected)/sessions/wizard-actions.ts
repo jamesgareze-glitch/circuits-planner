@@ -111,18 +111,11 @@ export async function createSession(input: {
   attendanceCount?: number;
   blocks: BlockInput[];
 }) {
-  const [warmup, abs] = await Promise.all([
-    prisma.category.findFirst({ where: { name: "Warm-up" } }),
-    prisma.category.findFirst({ where: { name: "Abs" } }),
-  ]);
-
-  const blockRank = (b: BlockInput) => {
-    if (b.type !== "category") return 1;
-    if (warmup && b.categoryId === warmup.id) return 0;
-    if (abs && b.categoryId === abs.id) return 2;
-    return 1;
-  };
-  const orderedBlocks = [...input.blocks].sort((a, b) => blockRank(a) - blockRank(b));
+  // Warm-up-first/Abs-last is only a *default* the wizard applies when it
+  // generates the initial suggestion (see Wizard.tsx's sortWarmupFirstAbsLast) —
+  // it must stay fully movable, so here we persist blocks in exactly the order
+  // the client sends them rather than re-imposing that ordering on save.
+  const orderedBlocks = input.blocks;
 
   const shareSlug = randomBytes(9).toString("base64url");
   const session = await prisma.session.create({
